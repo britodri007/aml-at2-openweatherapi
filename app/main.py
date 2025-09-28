@@ -1,133 +1,139 @@
 # app/main.py
-from fastapi import FastAPI, HTTPException, Query
-from pydantic import BaseModel
-from datetime import date, timedelta
+from fastapi import FastAPI, Query
+from fastapi.responses import JSONResponse
+import os, json, joblib
+from datetime import datetime, timedelta
 import pandas as pd
-import joblib
-import os
 
-# -----------------------------
-# Basic paths (relative to repo)
-# -----------------------------
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RAIN_MODEL_PATH = os.path.join(ROOT_DIR, "models", "rain_or_not", "logreg_model.joblib")
-PRECIP_MODEL_PATH = os.path.join(ROOT_DIR, "models", "precipitation_fall", "ridge_model.joblib")
-PARQUET_PATH = os.path.join(ROOT_DIR, "data", "features_daily.parquet")
-CSV_PATH = os.path.join(ROOT_DIR, "data", "features_daily.csv")
-
-# -----------------------------
-# Load models (once at startup)
-# -----------------------------
-try:
-    rain_model = joblib.load(RAIN_MODEL_PATH)
-except Exception as e:
-    raise RuntimeError(f"Could not load classification model: {e}")
-
-try:
-    precip_model = joblib.load(PRECIP_MODEL_PATH)
-except Exception as e:
-    raise RuntimeError(f"Could not load regression model: {e}")
-
-# -----------------------------
-# Load features table (CSV or Parquet)
-# Must contain a 'time' column with dates
-# -----------------------------
-if os.path.exists(PARQUET_PATH):
-    features_df = pd.read_parquet(PARQUET_PATH)
-elif os.path.exists(CSV_PATH):
-    features_df = pd.read_csv(CSV_PATH)
-else:
-    raise RuntimeError(
-        "No features file found. Put 'features_daily.parquet' or 'features_daily.csv' in the data/ folder."
-    )
-
-if "time" not in features_df.columns:
-    raise RuntimeError("Features table must include a 'time' column.")
-
-features_df = features_df.copy()
-features_df["time"] = pd.to_datetime(features_df["time"]).dt.date
-features_df = features_df.set_index("time")  # so we can look up rows by date easily
-
-# -----------------------------
-# Simple response models
-# -----------------------------
-class RainResponse(BaseModel):
-    input_date: date
-    prediction: dict
-
-class PrecipResponse(BaseModel):
-    input_date: date
-    prediction: dict
-
-# -----------------------------
-# FastAPI app
-# -----------------------------
 app = FastAPI(
-    title="Open Meteo AT2 API",
-    description="Simple API for: rain in +7 days (classification) and 3-day precipitation sum (regression).",
-    version="1.0.0",
+    title="Weather Prediction API",
+    version="1.0",
+    description="Predict rain (+7 days) and 3-day precipitation for Sydney."
 )
 
+# ---------- Paths
+ROOT = os.path.dirname(__file__)
+RAIN_DIR   = os.path.join(ROOT, "..", "models", "rain_or_not")
+PRECIP_DIR = os.path.join(ROOT, "..", "models", "precipitation_fall")
+
+RAIN_MODEL_PATH   = os.path.join(RAIN_DIR, "logreg_model.joblib")
+RAIN_FEATS_PATH   = os.path.join(RAIN_DIR, "feature_cols.json")
+PRECIP_MODEL_PATH = os.path.join(PRECIP_DIR, "ridge_model.joblib")
+PRECIP_FEATS_PATH = os.path.join(PRECIP_DIR, "feature_cols.json")
+
+# ---------- Load models + feature schemas
+try:
+    rain_model = joblib.load(RAIN_MODEL_PATH)         # sklearn Pipeline
+    with open(RAIN_FEATS_PATH) as f:
+        rain_features = json.load(f)                  # list[str] or list[int]
+except Exception as e:
+    raise RuntimeError(f"Could not load rain model/feats: {e}")
+
+try:
+    precip_model = joblib.load(PRECIP_MODEL_PATH)     # sklearn Pipeline
+    with open(PRECIP_FEATS_PATH) as f:
+        precip_features = json.load(f)
+except Exception as e:
+    raise RuntimeError(f"Could not load precipitation model/feats: {e}")
+
+def zero_row(columns):
+    """Make a 1xN DataFrame of zeros with exact training schema."""
+    return pd.DataFrame([[0]*len(columns)], columns=columns)
+
+# ---------- Endpoints
+
 @app.get("/")
-def home():
+def root():
     return {
-        "message": "Open Meteo AT2 API",
+        "project": "Open Meteo – ML Forecasts for Sydney",
+        "objectives": [
+            "Binary classification: will it rain exactly +7 days from a given date?",
+            "Regression: 3-day cumulative precipitation (mm) from a given date."
+        ],
         "endpoints": {
-            "/health/": "GET health check",
-            "/predict/rain/?date=YYYY-MM-DD": "Rain in exactly +7 days (binary)",
-            "/predict/precipitation/fall/?date=YYYY-MM-DD": "3-day precipitation sum (mm)",
+            "/health/": "GET – service status",
+            "/predict/rain/": "GET – ?date=YYYY-MM-DD -> will_rain boolean for date+7",
+            "/predict/precipitation/fall/": "GET – ?date=YYYY-MM-DD -> mm sum over next 3 days"
         },
+        "input": {
+            "date": "YYYY-MM-DD (training uses data <= 2024; 2025+ treated as production)"
+        },
+        "output_examples": {
+            "/predict/rain/": {
+                "input_date": "2023-01-01",
+                "prediction": {
+                    "date": "2023-01-08",
+                    "will_rain": True
+                }
+            },
+            "/predict/precipitation/fall/": {
+                "input_date": "2023-01-01",
+                "prediction": {
+                    "start_date": "2023-01-02",
+                    "end_date": "2023-01-04",
+                    "precipitation_fall": "28.2"
+                }
+            }
+        },
+        "github_repo": "<<< add your API repo URL here >>>"
     }
 
 @app.get("/health/")
 def health():
-    return {"status": "ok"}
+    return {"status": "✅ API is running!"}
 
-def get_features_row(d: date) -> pd.DataFrame:
-    """Return a single-row DataFrame for the requested date, or 404."""
-    if d not in features_df.index:
-        raise HTTPException(status_code=404, detail=f"No features found for {d}.")
-    # keep it as a DataFrame (shape [1, n_features])
-    return features_df.loc[d:d]
+@app.get("/predict/rain/")
+def predict_rain(
+    date: str = Query(..., description="Date in format YYYY-MM-DD")
+):
+    """
+    Returns if it will rain in exactly 7 days from the given date.
+    NOTE: This demo uses a zero-filled row that matches the training schema.
+          Replace `X` with real engineered features when ready.
+    """
+    try:
+        input_date = datetime.strptime(date, "%Y-%m-%d").date()
+        target_date = input_date + timedelta(days=7)
 
-@app.get("/predict/rain/", response_model=RainResponse)
-def predict_rain(date: date = Query(..., description="YYYY-MM-DD")):
-    X = get_features_row(date)
+        X = zero_row(rain_features)
+        y = int(rain_model.predict(X)[0])
+        will_rain = bool(y)
 
-    # If your saved object is a Pipeline with a classifier, this works directly
-    if hasattr(rain_model, "predict_proba"):
-        prob = float(rain_model.predict_proba(X)[0, 1])
-    else:
-        # very simple fallback if no predict_proba (not ideal, but beginner-friendly)
-        y_hat = int(rain_model.predict(X)[0])
-        prob = 1.0 if y_hat == 1 else 0.0
+        return {
+            "input_date": input_date.isoformat(),
+            "prediction": {
+                "date": target_date.isoformat(),
+                "will_rain": will_rain
+            }
+        }
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
 
-    will_rain = bool(prob >= 0.5)
+@app.get("/predict/precipitation/fall/")
+def predict_precipitation(
+    date: str = Query(..., description="Date in format YYYY-MM-DD")
+):
+    """
+    Returns cumulative precipitation (mm) for the next 3 days.
+    NOTE: This demo uses a zero-filled row that matches the training schema.
+          Replace `X` with real engineered features when ready.
+    """
+    try:
+        input_date = datetime.strptime(date, "%Y-%m-%d").date()
+        start_date = input_date + timedelta(days=1)
+        end_date   = input_date + timedelta(days=3)
 
-    return {
-        "input_date": date,
-        "prediction": {
-            "date": date + timedelta(days=7),
-            "will_rain": will_rain,
-            "prob": round(prob, 4),
-        },
-    }
+        X = zero_row(precip_features)
+        y = float(precip_model.predict(X)[0])
 
-@app.get("/predict/precipitation/fall/", response_model=PrecipResponse)
-def predict_precip(date: date = Query(..., description="YYYY-MM-DD")):
-    X = get_features_row(date)
-
-    y_hat = float(precip_model.predict(X)[0])
-
-    # NOTE: if you trained on log1p(target), you must invert it here:
-    # import numpy as np
-    # y_hat = float(np.expm1(y_hat))
-
-    return {
-        "input_date": date,
-        "prediction": {
-            "start_date": date + timedelta(days=1),
-            "end_date": date + timedelta(days=3),
-            "precipitation_fall": round(y_hat, 2),
-        },
-    }
+        # Assignment example shows precipitation_fall as a string
+        return {
+            "input_date": input_date.isoformat(),
+            "prediction": {
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "precipitation_fall": f"{round(y, 2)}"
+            }
+        }
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})

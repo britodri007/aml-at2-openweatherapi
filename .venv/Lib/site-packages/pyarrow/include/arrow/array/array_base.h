@@ -106,7 +106,7 @@ class ARROW_EXPORT Array {
   /// \see GetNullCount
   int64_t ComputeLogicalNullCount() const;
 
-  std::shared_ptr<DataType> type() const { return data_->type; }
+  const std::shared_ptr<DataType>& type() const { return data_->type; }
   Type::type type_id() const { return data_->type->id(); }
 
   /// Buffer for the validity (null) bitmap, if any. Note that Union types
@@ -165,6 +165,22 @@ class ARROW_EXPORT Array {
   /// An error is returned if the types are not layout-compatible.
   Result<std::shared_ptr<Array>> View(const std::shared_ptr<DataType>& type) const;
 
+  /// \brief Construct a copy of the array with all buffers on destination
+  /// Memory Manager
+  ///
+  /// This method recursively copies the array's buffers and those of its children
+  /// onto the destination MemoryManager device and returns the new Array.
+  Result<std::shared_ptr<Array>> CopyTo(const std::shared_ptr<MemoryManager>& to) const;
+
+  /// \brief Construct a new array attempting to zero-copy view if possible.
+  ///
+  /// Like CopyTo this method recursively goes through all of the array's buffers
+  /// and those of it's children and first attempts to create zero-copy
+  /// views on the destination MemoryManager device. If it can't, it falls back
+  /// to performing a copy. See Buffer::ViewOrCopy.
+  Result<std::shared_ptr<Array>> ViewOrCopyTo(
+      const std::shared_ptr<MemoryManager>& to) const;
+
   /// Construct a zero-copy slice of the array with the indicated offset and
   /// length
   ///
@@ -207,6 +223,14 @@ class ARROW_EXPORT Array {
   ///
   /// \return Status
   Status ValidateFull() const;
+
+  /// \brief Return the device_type that this array's data is allocated on
+  ///
+  /// This just delegates to calling device_type on the underlying ArrayData
+  /// object which backs this Array.
+  ///
+  /// \return DeviceAllocationType
+  DeviceAllocationType device_type() const { return data_->device_type(); }
 
  protected:
   Array() = default;
@@ -251,7 +275,7 @@ class ARROW_EXPORT PrimitiveArray : public FlatArray {
                  int64_t null_count = kUnknownNullCount, int64_t offset = 0);
 
   /// Does not account for any slice offset
-  std::shared_ptr<Buffer> values() const { return data_->buffers[1]; }
+  const std::shared_ptr<Buffer>& values() const { return data_->buffers[1]; }
 
  protected:
   PrimitiveArray() : raw_values_(NULLPTR) {}

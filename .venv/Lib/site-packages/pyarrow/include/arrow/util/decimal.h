@@ -80,7 +80,7 @@ class ARROW_EXPORT Decimal128 : public BasicDecimal128 {
     std::pair<Decimal128, Decimal128> result;
     auto dstatus = BasicDecimal128::Divide(divisor, &result.first, &result.second);
     ARROW_RETURN_NOT_OK(ToArrowStatus(dstatus));
-    return std::move(result);
+    return result;
   }
 
   /// \brief Convert the Decimal128 value to a base 10 decimal string with the given
@@ -118,7 +118,7 @@ class ARROW_EXPORT Decimal128 : public BasicDecimal128 {
     Decimal128 out;
     auto dstatus = BasicDecimal128::Rescale(original_scale, new_scale, &out);
     ARROW_RETURN_NOT_OK(ToArrowStatus(dstatus));
-    return std::move(out);
+    return out;
   }
 
   /// \brief Convert to a signed integer
@@ -146,9 +146,15 @@ class ARROW_EXPORT Decimal128 : public BasicDecimal128 {
   double ToDouble(int32_t scale) const;
 
   /// \brief Convert to a floating-point number (scaled)
-  template <typename T>
+  template <typename T, typename = std::enable_if_t<std::is_floating_point_v<T>>>
   T ToReal(int32_t scale) const {
-    return ToRealConversion<T>::ToReal(*this, scale);
+    static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>,
+                  "Unexpected floating-point type");
+    if constexpr (std::is_same_v<T, float>) {
+      return ToFloat(scale);
+    } else {
+      return ToDouble(scale);
+    }
   }
 
   ARROW_FRIEND_EXPORT friend std::ostream& operator<<(std::ostream& os,
@@ -157,21 +163,6 @@ class ARROW_EXPORT Decimal128 : public BasicDecimal128 {
  private:
   /// Converts internal error code to Status
   Status ToArrowStatus(DecimalStatus dstatus) const;
-
-  template <typename T>
-  struct ToRealConversion {};
-};
-
-template <>
-struct Decimal128::ToRealConversion<float> {
-  static float ToReal(const Decimal128& dec, int32_t scale) { return dec.ToFloat(scale); }
-};
-
-template <>
-struct Decimal128::ToRealConversion<double> {
-  static double ToReal(const Decimal128& dec, int32_t scale) {
-    return dec.ToDouble(scale);
-  }
 };
 
 /// Represents a signed 256-bit integer in two's complement.
@@ -227,7 +218,7 @@ class ARROW_EXPORT Decimal256 : public BasicDecimal256 {
     Decimal256 out;
     auto dstatus = BasicDecimal256::Rescale(original_scale, new_scale, &out);
     ARROW_RETURN_NOT_OK(ToArrowStatus(dstatus));
-    return std::move(out);
+    return out;
   }
 
   /// Divide this number by right and return the result.
@@ -244,7 +235,7 @@ class ARROW_EXPORT Decimal256 : public BasicDecimal256 {
     std::pair<Decimal256, Decimal256> result;
     auto dstatus = BasicDecimal256::Divide(divisor, &result.first, &result.second);
     ARROW_RETURN_NOT_OK(ToArrowStatus(dstatus));
-    return std::move(result);
+    return result;
   }
 
   /// \brief Convert from a big-endian byte representation. The length must be
@@ -262,9 +253,15 @@ class ARROW_EXPORT Decimal256 : public BasicDecimal256 {
   double ToDouble(int32_t scale) const;
 
   /// \brief Convert to a floating-point number (scaled)
-  template <typename T>
+  template <typename T, typename = std::enable_if_t<std::is_floating_point_v<T>>>
   T ToReal(int32_t scale) const {
-    return ToRealConversion<T>::ToReal(*this, scale);
+    static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>,
+                  "Unexpected floating-point type");
+    if constexpr (std::is_same_v<T, float>) {
+      return ToFloat(scale);
+    } else {
+      return ToDouble(scale);
+    }
   }
 
   ARROW_FRIEND_EXPORT friend std::ostream& operator<<(std::ostream& os,
@@ -273,21 +270,6 @@ class ARROW_EXPORT Decimal256 : public BasicDecimal256 {
  private:
   /// Converts internal error code to Status
   Status ToArrowStatus(DecimalStatus dstatus) const;
-
-  template <typename T>
-  struct ToRealConversion {};
-};
-
-template <>
-struct Decimal256::ToRealConversion<float> {
-  static float ToReal(const Decimal256& dec, int32_t scale) { return dec.ToFloat(scale); }
-};
-
-template <>
-struct Decimal256::ToRealConversion<double> {
-  static double ToReal(const Decimal256& dec, int32_t scale) {
-    return dec.ToDouble(scale);
-  }
 };
 
 /// For an integer type, return the max number of decimal digits
