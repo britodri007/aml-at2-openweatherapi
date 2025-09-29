@@ -3,7 +3,13 @@ from fastapi import FastAPI, Query
 import joblib, os, json
 from datetime import datetime, timedelta
 
-app = FastAPI(title="Weather Prediction API", version="1.0")
+app = FastAPI(
+    title="Open Meteo AI Weather Prediction",
+    version="1.0",
+    description="API for Sydney weather ML models: rain (+7d) classification and 3-day precipitation regression.",
+    docs_url="/",      # Swagger at /
+    redoc_url="/redoc" # ReDoc at /redoc
+)
 
 # Paths
 RAIN_MODEL_PATH = os.path.join("models", "rain_or_not", "logreg_model.joblib")
@@ -26,9 +32,9 @@ try:
 except Exception as e:
     raise RuntimeError(f"Could not load regression model: {e}")
 
-
-@app.get("/")
-def root():
+# ❗️Move the project info OFF "/" so it doesn't collide with docs_url="/"
+@app.get("/about", tags=["Meta"], summary="Project info")
+def about():
     return {
         "project": "Open Meteo – ML Forecasts for Sydney",
         "objectives": [
@@ -38,7 +44,8 @@ def root():
         "endpoints": {
             "/health/": "GET – service status",
             "/predict/rain/": "GET – ?date=YYYY-MM-DD",
-            "/predict/precipitation/fall/": "GET – ?date=YYYY-MM-DD"
+            "/predict/precipitation/fall/": "GET – ?date=YYYY-MM-DD",
+            "/redoc": "Alternative API docs"
         },
         "input": {"date": "YYYY-MM-DD"},
         "output_examples": {
@@ -58,50 +65,49 @@ def root():
         "github_repo": "https://github.com/britodri007/aml-at2-openweatherapi.git"
     }
 
-
-@app.get("/health/")
+@app.get("/health/", tags=["Health"], summary="Health")
 def health():
     return {"status": "API is running!"}
 
-
-@app.get("/predict/rain/")
+@app.get(
+    "/predict/rain/",
+    tags=["Predictions"],
+    summary="Predict Rain (+7 days)"
+)
 def predict_rain(date: str = Query(..., description="YYYY-MM-DD")):
     try:
         input_date = datetime.strptime(date, "%Y-%m-%d")
         target_date = input_date + timedelta(days=7)
-
-        # Dummy input with correct number of features (12)
-        X_dummy = [[0] * len(rain_features)]
-        prediction = rain_model.predict(X_dummy)[0]
-
+        X_dummy = [[0] * len(rain_features)]   # 12 features
+        prediction = bool(rain_model.predict(X_dummy)[0])
         return {
             "input_date": date,
             "prediction": {
                 "date": target_date.strftime("%Y-%m-%d"),
-                "will_rain": bool(prediction),
+                "will_rain": prediction
             }
         }
     except Exception as e:
         return {"error": str(e)}
 
-
-@app.get("/predict/precipitation/fall/")
+@app.get(
+    "/predict/precipitation/fall/",
+    tags=["Predictions"],
+    summary="Predict 3-day Precipitation (mm)"
+)
 def predict_precipitation(date: str = Query(..., description="YYYY-MM-DD")):
     try:
         input_date = datetime.strptime(date, "%Y-%m-%d")
         start_date = input_date + timedelta(days=1)
         end_date = input_date + timedelta(days=3)
-
-        # Dummy input with correct number of features (20)
-        X_dummy = [[0] * len(precip_features)]
+        X_dummy = [[0] * len(precip_features)]  # 20 features
         prediction = float(precip_model.predict(X_dummy)[0])
-
         return {
             "input_date": date,
             "prediction": {
                 "start_date": start_date.strftime("%Y-%m-%d"),
                 "end_date": end_date.strftime("%Y-%m-%d"),
-                "precipitation_fall": round(prediction, 2),
+                "precipitation_fall": round(prediction, 2)
             }
         }
     except Exception as e:
