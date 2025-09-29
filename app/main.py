@@ -1,12 +1,11 @@
 # app/main.py
 from fastapi import FastAPI, Query
-import joblib
-import os
+import joblib, os
 from datetime import datetime, timedelta
 
 app = FastAPI(title="Weather Prediction API", version="1.0")
 
-# Paths to your saved models
+# Paths
 RAIN_MODEL_PATH = os.path.join("models", "rain_or_not", "logreg_model.joblib")
 PRECIP_MODEL_PATH = os.path.join("models", "precipitation_fall", "ridge_model.joblib")
 
@@ -32,19 +31,14 @@ def root():
         ],
         "endpoints": {
             "/health/": "GET – service status",
-            "/predict/rain/": "GET – ?date=YYYY-MM-DD -> will_rain boolean for date+7",
-            "/predict/precipitation/fall/": "GET – ?date=YYYY-MM-DD -> mm sum over next 3 days"
+            "/predict/rain/": "GET – ?date=YYYY-MM-DD",
+            "/predict/precipitation/fall/": "GET – ?date=YYYY-MM-DD"
         },
-        "input": {
-            "date": "YYYY-MM-DD (training uses data <= 2024; 2025+ treated as production)"
-        },
+        "input": {"date": "YYYY-MM-DD"},
         "output_examples": {
             "/predict/rain/": {
                 "input_date": "2023-01-01",
-                "prediction": {
-                    "date": "2023-01-08",
-                    "will_rain": True
-                }
+                "prediction": {"date": "2023-01-08", "will_rain": True}
             },
             "/predict/precipitation/fall/": {
                 "input_date": "2023-01-01",
@@ -61,17 +55,17 @@ def root():
 
 @app.get("/health/")
 def health():
-    return {"status": "✅ API is running!"}
+    return {"status": "API is running!"}
 
 
 @app.get("/predict/rain/")
-def predict_rain(date: str = Query(..., description="Date in format YYYY-MM-DD")):
+def predict_rain(date: str = Query(..., description="YYYY-MM-DD")):
     try:
         input_date = datetime.strptime(date, "%Y-%m-%d")
         target_date = input_date + timedelta(days=7)
 
-        # Dummy input: replace with real feature pipeline
-        X_dummy = [[0] * 20]  # match model’s expected features
+        # Dummy features (replace with pipeline features later)
+        X_dummy = [[0] * 20]
         prediction = rain_model.predict(X_dummy)[0]
 
         return {
@@ -86,14 +80,13 @@ def predict_rain(date: str = Query(..., description="Date in format YYYY-MM-DD")
 
 
 @app.get("/predict/precipitation/fall/")
-def predict_precipitation(date: str = Query(..., description="Date in format YYYY-MM-DD")):
+def predict_precipitation(date: str = Query(..., description="YYYY-MM-DD")):
     try:
         input_date = datetime.strptime(date, "%Y-%m-%d")
         start_date = input_date + timedelta(days=1)
         end_date = input_date + timedelta(days=3)
 
-        # Dummy input: replace with real feature pipeline
-        X_dummy = [[0] * 20]  # match model’s expected features
+        X_dummy = [[0] * 20]
         prediction = float(precip_model.predict(X_dummy)[0])
 
         return {
@@ -106,4 +99,3 @@ def predict_precipitation(date: str = Query(..., description="Date in format YYY
         }
     except Exception as e:
         return {"error": str(e)}
-

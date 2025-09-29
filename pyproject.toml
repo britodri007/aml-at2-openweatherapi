@@ -1,20 +1,18 @@
-[build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
-
-[project]
-name = "weather-api"
+[tool.poetry]
+name = "advml-at2-weather-api"
 version = "0.1.0"
-description = "FastAPI app for rain prediction and precipitation forecasting"
-authors = [
-    { name = "Britney Odria", email = "brit.odri007@outlook.com" }
-]
-dependencies = [
-    "fastapi",
-    "uvicorn",
-    "pydantic",
-    "joblib",
-    "scikit-learn",
-    "pandas",
-    "numpy"
-]
+description = "FastAPI service for weather prediction (rain classification and precipitation regression)"
+authors = ["Britney Rosalia Odria <14131609@uts.edu.au>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "0.110.0"
+uvicorn = { extras = ["standard"], version = "0.29.0" }
+scikit-learn = "1.5.1"
+pandas = "2.2.3"
+joblib = "1.4.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
