@@ -3,7 +3,7 @@ from fastapi import FastAPI, Query
 import joblib, os, json
 from datetime import datetime, timedelta
 
-app = FastAPI(title="Open Meteo AI Weather Prediction", version="1.0")
+app = FastAPI(title="Weather Prediction API", version="1.0")
 
 # Paths
 RAIN_MODEL_PATH = os.path.join("models", "rain_or_not", "logreg_model.joblib")
@@ -11,7 +11,7 @@ RAIN_FEATURES_PATH = os.path.join("models", "rain_or_not", "feature_cols.json")
 PRECIP_MODEL_PATH = os.path.join("models", "precipitation_fall", "ridge_model.joblib")
 PRECIP_FEATURES_PATH = os.path.join("models", "precipitation_fall", "feature_cols.json")
 
-# Load models + feature lists
+# Load models + feature definitions
 try:
     rain_model = joblib.load(RAIN_MODEL_PATH)
     with open(RAIN_FEATURES_PATH, "r") as f:
@@ -61,7 +61,7 @@ def root():
 
 @app.get("/health/")
 def health():
-    return {"status": "Hello there! API is running! :) "}
+    return {"status": "API is running!"}
 
 
 @app.get("/predict/rain/")
@@ -70,7 +70,7 @@ def predict_rain(date: str = Query(..., description="YYYY-MM-DD")):
         input_date = datetime.strptime(date, "%Y-%m-%d")
         target_date = input_date + timedelta(days=7)
 
-        # Replace dummy vector with correct number of features
+        # Dummy input with correct number of features (12)
         X_dummy = [[0] * len(rain_features)]
         prediction = rain_model.predict(X_dummy)[0]
 
@@ -92,6 +92,7 @@ def predict_precipitation(date: str = Query(..., description="YYYY-MM-DD")):
         start_date = input_date + timedelta(days=1)
         end_date = input_date + timedelta(days=3)
 
+        # Dummy input with correct number of features (20)
         X_dummy = [[0] * len(precip_features)]
         prediction = float(precip_model.predict(X_dummy)[0])
 
