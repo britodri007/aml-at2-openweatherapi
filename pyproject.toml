@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "weather-api"
+version = "0.1.0"
+description = "FastAPI app for rain prediction and precipitation forecasting"
+authors = [
+    { name = "Britney Odria", email = "brit.odri007@outlook.com" }
+]
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "joblib",
+    "scikit-learn",
+    "pandas",
+    "numpy"
+]
