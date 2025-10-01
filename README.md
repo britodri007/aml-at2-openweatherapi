@@ -1,117 +1,197 @@
-# Weather Forecasting API (AT2)
+# 🌦️ Open Meteo AI Weather Prediction
 
-This project enhances weather forecasting by embedding machine learning into Open-Meteo’s services. Two models are deployed as APIs:
+FastAPI app serving two ML models:  
+- **Rain in +7 days** (binary classification)  
+- **3-day cumulative precipitation** (regression)
 
-Rain Prediction (Logistic Regression): forecasts rain (yes/no) exactly seven days ahead.
+---
 
-Precipitation Forecast (Ridge Regression): estimates rainfall volume (mm) over the next three days.
+## What this is (assignment summary)
 
-Both models are deployed with FastAPI and hosted on Render, making them accessible in real time.
+- **Unit:** 36120 – AT2 (ML as a Service)  
+- **Goal:** Ship two ML models behind an API (runs locally, with Docker, or on Render).  
+- **Stack:** FastAPI, Uvicorn, scikit-learn, pandas, numpy.  
+- **Docs:** Swagger at `/` (root), ReDoc at `/redoc`.  
+- **Models required on disk:**  
+  - `models/rain_or_not/logreg_model.joblib`  
+  - `models/rain_or_not/feature_cols.json`  
+  - `models/precipitation_fall/ridge_model.joblib`  
+  - `models/precipitation_fall/feature_cols.json`
 
-# Setup
-# Clone the Repository
-git clone https://github.com/britodri007/aml-at2-experiment.git
-cd aml-at2-experiment
+---
 
-## Create Virtual Environment
+## Quick Start (Local, Poetry recommended)
 
+### 1. Clone this repo
+```bash
+git clone https://github.com/britodri007/aml-at2-openweatherapi
+cd aml-at2-openweatherapi
+```
+
+### 2. Install deps (Poetry, Python 3.11.x)
+```bash
+poetry lock
+poetry install --with dev
+```
+
+### 3. Activate the venv
+```bash
+poetry env activate
+# or
+& .\.venv\Scripts\Activate.ps1
+```
+
+### 4. Make sure model files are in place
+```
+models/
+ ├─ rain_or_not/
+ │   ├─ logreg_model.joblib
+ │   └─ feature_cols.json
+ └─ precipitation_fall/
+     ├─ ridge_model.joblib
+     └─ feature_cols.json
+```
+
+### 5. Run the API
+```bash
+uvicorn app:app --reload
+```
+
+- Swagger UI → [http://127.0.0.1:8000/](http://127.0.0.1:8000/)  
+- ReDoc → [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc)
+
+---
+
+## 🐍 Run with pip instead (optional)
+
+```bash
 python -m venv .venv
-
-source .venv/bin/activate   # Mac/Linux
-
-.venv\Scripts\activate      # Windows
-
-## Install Dependencies
+# Windows:
+.\.venv\Scripts\Activate.ps1
 
 pip install -r requirements.txt
+uvicorn app:app --host 0.0.0.0 --port 8000
+```
 
-# Deployment
+---
 
-Run Locally
+## 🐳 Docker (local)
 
-uvicorn app.main:app --reload
+### Build the image
+```bash
+docker build -t open-meteo-api .
+```
 
+### Run it
+```bash
+docker run -p 8000:8000 open-meteo-api
+```
 
-Open Swagger UI at http://localhost:8000/docs
+Swagger will be live at: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
 
-Health check available at http://localhost:8000/health
+---
 
-Hosted Deployment
+## ☁️ Deploy on Render with Docker
 
-- Models are deployed on Render and accessible through structured HTTP endpoints:
+1. Push this repo (with `Dockerfile`) to GitHub.  
+2. In Render → **New Web Service** → connect the repo.  
+3. Choose **Runtime: Docker**.  
+4. Make sure your models are committed to the repo (or load them from a Render Disk / bucket at the same paths).  
+5. Render will build the image using the `Dockerfile` automatically.  
+6. API will run on:
+```bash
+uvicorn app:app --host 0.0.0.0 --port $PORT
+```
+7. Health check: visit `/` → Swagger should load.  
 
-- Rain prediction endpoint: /predict/rain
+---
 
-- Precipitation endpoint: /predict/precipitation/fall
+## Quick test after deploy
 
-- Docs: /docs
+```bash
+# Swagger endpoint
+curl -I https://<your-service>.onrender.com/
 
-- Health check: /health
+# Example POST request (rain prediction)
+curl -X POST "https://<your-service>.onrender.com/predict/rain"   -H "Content-Type: application/json"   -d @sample_rain.json
+```
 
-# Usage
-1. Rain Prediction (Classification)
+---
 
-Endpoint: POST /predict/rain
-Example request:
+## 🔧 Deployment Files
 
-{
-  "temperature_2m_mean": 19.2,
-  "dew_point_2m_max": 14.8,
-  "relative_humidity_2m_mean": 72.0,
-  "surface_pressure_mean": 1012.4,
-  "shortwave_radiation_sum": 18.5,
-  "sunshine_duration": 9.0,
-  "daylight_duration": 12.1,
-  "wind_gusts_10m_max": 45.0,
-  "cloud_cover_max": 85.0,
-  "weather_code": 3,
-  "dewpoint_spread": 4.4,
-  "sunshine_ratio": 0.74
-}
+### Dockerfile
+```dockerfile
+# ---------- base ----------
+FROM python:3.11-slim AS base
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+WORKDIR /app
 
+# system deps you might need (uvicorn performance, build tools, etc.)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential curl && \
+    rm -rf /var/lib/apt/lists/*
 
-Response:
+# ---------- deps (PIP route) ----------
+FROM base AS deps-pip
+COPY requirements.txt .
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
-{
-  "probability_rain": 0.62,
-  "prediction": 1,
-  "label": "rain"
-}
+# ---------- deps (Poetry route) ----------
+FROM base AS deps-poetry
+ENV POETRY_VERSION=1.8.3
+RUN pip install --no-cache-dir "poetry==${POETRY_VERSION}"
+COPY pyproject.toml poetry.lock* ./
+RUN poetry config virtualenvs.create false \
+ && poetry install --no-root --only main
 
-2. Precipitation Forecast (Regression)
+# ---------- runtime ----------
+FROM base AS runtime
+# Choose ONE of these COPY lines based on your dep manager:
+# Using pip:
+COPY --from=deps-pip /usr/local/lib/python3.11 /usr/local/lib/python3.11
+COPY --from=deps-pip /usr/local/bin /usr/local/bin
+# Using Poetry (comment pip lines above and uncomment below):
+# COPY --from=deps-poetry /usr/local/lib/python3.11 /usr/local/lib/python3.11
+# COPY --from=deps-poetry /usr/local/bin /usr/local/bin
 
-Endpoint: POST /predict/precipitation/fall
-Example request:
+# Copy app code
+COPY . .
 
-{
-  "cloud_cover_mean": 65.0,
-  "relative_humidity_2m_mean": 78.0,
-  "precipitation_hours": 3.0,
-  "weather_code": 3,
-  "surface_pressure_mean": 1009.8,
-  "wind_gusts_10m_max": 50.0,
-  "cloud_cover_max": 92.0,
-  "temperature_2m_mean": 18.6,
-  "shortwave_radiation_sum": 14.2,
-  "dew_point_2m_max": 15.1,
-  "dewpoint_spread": 3.5,
-  "sunshine_ratio": 0.62
-}
+# Expose port (Render sets $PORT at runtime; EXPOSE is informational)
+EXPOSE 8000
 
+# Start FastAPI (Render sets $PORT — use it)
+CMD exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000} --workers 2
+```
 
-Response:
+### .dockerignore
+```dockerignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.dist/
+.venv/
+.git/
+.gitignore
+.env
+.env.*
+*.ipynb_checkpoints
+data/
+notebooks/
+```
 
-{
-  "precip_3d_sum_mm": 12.4
-}
+---
 
-# Troubleshooting
+##  Notes
 
-- ModuleNotFoundError: Ensure you activated the virtual environment before running.
+- Only **four model files** are required for the API to run (see above).  
+- Keep your `.dockerignore` tight so the Docker image stays small.  
+- On Render, `$PORT` is auto-set — don’t hardcode `8000`.  
+- If models are large, consider using a Render Disk instead of committing them.  
 
-- Port already in use: Stop any other uvicorn/FastAPI apps or run on another port with --port 8080.
-
-- Invalid JSON input: Check feature names and types match those in the API docs (/docs).
-
-
-- Deployment slow on Render: Free tier may take longer to wake up; consider scaling up.
+---
