@@ -14,15 +14,21 @@ git clone https://github.com/britodri007/aml-at2-experiment.git
 cd aml-at2-experiment
 
 ## Create Virtual Environment
+
 python -m venv .venv
+
 source .venv/bin/activate   # Mac/Linux
+
 .venv\Scripts\activate      # Windows
 
 ## Install Dependencies
+
 pip install -r requirements.txt
 
 # Deployment
+
 Run Locally
+
 uvicorn app.main:app --reload
 
 
@@ -106,5 +112,6 @@ Response:
 - Port already in use: Stop any other uvicorn/FastAPI apps or run on another port with --port 8080.
 
 - Invalid JSON input: Check feature names and types match those in the API docs (/docs).
+
 
 - Deployment slow on Render: Free tier may take longer to wake up; consider scaling up.
